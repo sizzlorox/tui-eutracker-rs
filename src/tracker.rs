@@ -1,3 +1,4 @@
+use chrono::Local;
 use rust_decimal::prelude::*;
 use std::{
     collections::{HashMap, VecDeque},
@@ -25,26 +26,44 @@ pub struct Tracker {
 
 impl Tracker {
     pub fn new(user: String) -> Tracker {
-        match Session::load(Path::new("current_session.json")) {
-            Some(session) => {
-                return Tracker {
-                    user,
-                    current_session: session,
-                    loadouts: Loadout::fetch(),
-                    sessions: Session::fetch(),
-                    logs: VecDeque::with_capacity(75),
+        let sessions = Session::fetch();
+        let mut sessions_vec: Vec<&Session> = sessions.values().into_iter().collect();
+        sessions_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        let default_session = sessions_vec.get(0);
+        if default_session.is_some() {
+            let default_load_session_file = format!("{}.json", sessions_vec.get(0).unwrap().name);
+            match Session::load(Path::new(default_load_session_file.as_str())) {
+                Some(session) => {
+                    return Tracker {
+                        user,
+                        current_session: session,
+                        loadouts: Loadout::fetch(),
+                        sessions,
+                        logs: VecDeque::with_capacity(75),
+                    }
                 }
-            }
-            None => {
-                return Tracker {
-                    user,
-                    current_session: Session::new("current_session.json"),
-                    loadouts: Loadout::fetch(),
-                    sessions: Session::fetch(),
-                    logs: VecDeque::with_capacity(75),
+                None => {
+                    let date_string = Local::now().format("%Y-%m-%d_%H-%M-%S");
+                    return Tracker {
+                        user,
+                        current_session: Session::new(
+                            format!("{}_session.json", date_string).as_str(),
+                        ),
+                        loadouts: Loadout::fetch(),
+                        sessions: Session::fetch(),
+                        logs: VecDeque::with_capacity(75),
+                    };
                 }
             }
         }
+        let date_string = Local::now().format("%Y-%m-%d_%H-%M-%S");
+        return Tracker {
+            user,
+            current_session: Session::new(format!("{}_session.json", date_string).as_str()),
+            loadouts: Loadout::fetch(),
+            sessions: Session::fetch(),
+            logs: VecDeque::with_capacity(75),
+        };
     }
 }
 

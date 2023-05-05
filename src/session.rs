@@ -11,8 +11,9 @@ use std::{
 
 use crate::loadout::Loadout;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Session {
+    pub name: String,
     #[serde(with = "serde_millis")]
     pub start_time: Instant,
     pub elapsed_time: Duration,
@@ -22,19 +23,23 @@ pub struct Session {
     pub stats: SessionStats,
     pub loot_map: HashMap<String, SessionLoot>,
     pub skill_map: HashMap<String, SessionSkill>,
+    #[serde(with = "serde_millis")]
+    pub created_at: Instant,
 }
 
 impl Session {
     pub fn new(session_name: &str) -> Session {
         let current_session_file = Path::new(session_name);
         let default_session = Session {
+            name: String::from(session_name.replace(".json", "")),
             start_time: Instant::now(),
             elapsed_time: Duration::from_secs(0),
             is_active: false,
-            loadout: Loadout::new("Default Loadout"),
+            loadout: Loadout::new("default"),
             stats: SessionStats::new(),
             loot_map: HashMap::new(),
             skill_map: HashMap::new(),
+            created_at: Instant::now(),
         };
 
         let mut file = File::create(current_session_file).unwrap();
@@ -58,7 +63,7 @@ impl Session {
         let mut session_map: HashMap<String, Session> = HashMap::new();
         for entry in glob("*_session.json").unwrap() {
             if let Ok(file_path) = entry {
-                if file_path.to_str().unwrap().eq("current_session.json") {
+                if file_path.to_str().unwrap() == "current_session.json" {
                     continue;
                 }
                 let session = Session::load(&file_path).unwrap();
@@ -73,21 +78,15 @@ impl Session {
     }
 
     pub fn save(self: &Self) {
-        let current_session_file = Path::new("current_session.json");
-        let mut file = File::create(current_session_file).unwrap();
-        let contents = serde_json::to_string_pretty(self).unwrap();
-        file.write_all(contents.as_bytes()).unwrap();
-    }
-
-    pub fn export(self: &Self, session_name: &str) {
-        let current_session_file = Path::new(session_name);
+        let file_name = format!("{}.json", &self.name);
+        let current_session_file = Path::new(file_name.as_str());
         let mut file = File::create(current_session_file).unwrap();
         let contents = serde_json::to_string_pretty(self).unwrap();
         file.write_all(contents.as_bytes()).unwrap();
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SessionStats {
     pub mu_profit: Decimal,
     pub tt_profit: Decimal,
@@ -143,7 +142,7 @@ impl SessionStats {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SessionLoot {
     pub name: String,
     pub tt_value: Decimal,
@@ -151,7 +150,7 @@ pub struct SessionLoot {
     pub count: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SessionSkill {
     pub name: String,
     pub exp_gain: Decimal,
@@ -167,11 +166,11 @@ pub trait Stopwatch {
 
 impl Stopwatch for Session {
     fn start(&mut self) {
-        self.start_time = Instant::now();
+        self.start_time = Instant::now() - self.elapsed_time;
         self.is_active = true;
     }
     fn pause(&mut self) {
-        self.elapsed_time += self.start_time.elapsed();
+        self.elapsed_time = self.start_time.elapsed();
         self.is_active = false;
     }
     fn reset(&mut self) {

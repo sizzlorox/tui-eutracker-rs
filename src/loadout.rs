@@ -4,7 +4,7 @@ use std::{collections::HashMap, fs::File, io::Write, path::Path};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Loadout {
     pub name: String,
     pub weapon: Option<String>,

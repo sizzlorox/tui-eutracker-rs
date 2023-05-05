@@ -12,6 +12,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen},
 };
+use loadout::Loadout;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use session::{Session, Stopwatch};
 use std::io;
@@ -41,7 +42,12 @@ fn main() {
         .unwrap();
 
     let mut tracker = Tracker::new(String::from("Aardvark sizz-lorr Nolin"));
-    let mut ui = TrackerUI::new();
+    let mut sessions_vec: Vec<&Session> = tracker.sessions.values().into_iter().collect();
+    sessions_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let active_session_idx = sessions_vec
+        .iter()
+        .position(|&s| s.name == tracker.current_session.name);
+    let mut ui = TrackerUI::new(active_session_idx);
 
     enable_raw_mode().unwrap();
     let mut stdout = io::stdout();
@@ -79,14 +85,76 @@ fn main() {
                         KeyCode::Char('l') => ui.active_menu_item = ui::MenuItem::Loadout,
                         KeyCode::Char('m') => ui.active_menu_item = ui::MenuItem::Markup,
                         KeyCode::Char('o') => ui.active_menu_item = ui::MenuItem::Options,
-                        KeyCode::Char('n') => {
-                            let date_string = Local::now().format("%Y-%m-%d_%H-%M-%S");
-                            tracker
-                                .current_session
-                                .export(format!("{}_session.json", date_string).as_str());
-                            tracker.current_session = Session::new("current_session.json");
-                            tracker.sessions = Session::fetch();
-                        }
+                        KeyCode::Char('n') => match ui.active_menu_item {
+                            ui::MenuItem::Session => {
+                                tracker.logs.push_front("Creating New Session".to_string());
+                                let date_string = Local::now().format("%Y-%m-%d_%H-%M-%S");
+                                Session::new(format!("{}_session.json", date_string).as_str());
+                                tracker.sessions = Session::fetch();
+                            }
+                            ui::MenuItem::Loadout => {
+                                tracker.logs.push_front("Creating New Loadout".to_string());
+                                let date_string = Local::now().format("%Y-%m-%d_%H-%M-%S");
+                                Loadout::new(format!("{}_loadout.json", date_string).as_str());
+                                tracker.loadouts = Loadout::fetch();
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Up => match ui.active_menu_item {
+                            ui::MenuItem::Session => TrackerUI::previous_session(
+                                &mut ui,
+                                tracker.sessions.values().collect::<Vec<&Session>>(),
+                            ),
+                            ui::MenuItem::Loadout => TrackerUI::previous_loadout(
+                                &mut ui,
+                                tracker.loadouts.values().collect::<Vec<&Loadout>>(),
+                            ),
+                            _ => {}
+                        },
+                        KeyCode::Down => match ui.active_menu_item {
+                            ui::MenuItem::Session => TrackerUI::next_session(
+                                &mut ui,
+                                tracker.sessions.values().collect::<Vec<&Session>>(),
+                            ),
+                            ui::MenuItem::Loadout => TrackerUI::next_loadout(
+                                &mut ui,
+                                tracker.loadouts.values().collect::<Vec<&Loadout>>(),
+                            ),
+                            _ => {}
+                        },
+                        KeyCode::Right => match ui.active_menu_item {
+                            // TODO: need to rename current, then move selected to current
+                            ui::MenuItem::Session => {
+                                tracker.current_session.pause();
+                                tracker.current_session.save();
+
+                                tracker.sessions = Session::fetch();
+
+                                let mut sessions_vec: Vec<&Session> =
+                                    tracker.sessions.values().into_iter().collect();
+                                sessions_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                                let mut new_session =
+                                    sessions_vec[ui.session_list_state.selected().unwrap()].clone();
+                                ui.active_session_idx = ui.session_list_state.selected();
+                                new_session.start_time = Instant::now();
+
+                                tracker
+                                    .logs
+                                    .push_front(format!("Selecting Session: {}", new_session.name));
+                                tracker.current_session = new_session;
+                            }
+                            ui::MenuItem::Loadout => {
+                                tracker.logs.push_front("Selecting Loadout".to_string());
+                                tracker.current_session.loadout = tracker
+                                    .loadouts
+                                    .values()
+                                    .into_iter()
+                                    .collect::<Vec<&Loadout>>()
+                                    [ui.loadout_table_state.selected().unwrap()]
+                                .clone()
+                            }
+                            _ => {}
+                        },
                         KeyCode::Char('p') => match tracker.current_session.is_active {
                             true => {
                                 tracker.logs.push_front("Stopping Session".to_string());

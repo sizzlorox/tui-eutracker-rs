@@ -4,13 +4,15 @@ use tui::{
     style::{Color, Modifier, Style},
     text::{Span, Spans},
     widgets::{
-        Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, TableState, Tabs, Wrap,
+        Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Tabs,
+        Wrap,
     },
     Frame,
 };
 
 use crate::{
-    session::Stopwatch,
+    loadout::Loadout,
+    session::{Session, Stopwatch},
     tracker::Tracker,
     utils::{Helpers, Utils},
 };
@@ -39,19 +41,89 @@ impl From<MenuItem> for usize {
 pub struct TrackerUI {
     pub active_menu_item: MenuItem,
     menu_items: Vec<String>,
-    loadout_table_state: TableState,
+    pub active_session_idx: Option<usize>,
+    pub session_list_state: ListState,
+    pub loadout_table_state: TableState,
 }
 
 impl TrackerUI {
-    pub fn new() -> TrackerUI {
+    pub fn new(active_session_idx: Option<usize>) -> TrackerUI {
+        let mut session_list_state = ListState::default();
+        session_list_state.select(active_session_idx);
         return TrackerUI {
             active_menu_item: MenuItem::Home,
             menu_items: vec!["Home", "Session", "Loadout", "Markup", "Options", "Quit"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            active_session_idx,
+            session_list_state,
             loadout_table_state: TableState::default(),
         };
+    }
+    pub fn next_session(&mut self, items: Vec<&Session>) {
+        if items.len() == 0 {
+            return;
+        }
+        let i = match self.session_list_state.selected() {
+            Some(i) => {
+                if i >= items.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.session_list_state.select(Some(i));
+    }
+    pub fn previous_session(&mut self, items: Vec<&Session>) {
+        if items.len() == 0 {
+            return;
+        }
+        let i = match self.session_list_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    items.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.session_list_state.select(Some(i));
+    }
+    pub fn next_loadout(&mut self, items: Vec<&Loadout>) {
+        if items.len() == 0 {
+            return;
+        }
+        let i = match self.loadout_table_state.selected() {
+            Some(i) => {
+                if i >= items.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.loadout_table_state.select(Some(i));
+    }
+    pub fn previous_loadout(&mut self, items: Vec<&Loadout>) {
+        if items.len() == 0 {
+            return;
+        }
+        let i = match self.loadout_table_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    items.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.loadout_table_state.select(Some(i));
     }
 }
 
@@ -104,11 +176,15 @@ impl UI for TrackerUI {
                     .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
                     .split(chunks[1]);
 
-                let session_list_section = TrackerUI::get_session_list_section(tracker);
+                let session_list_section =
+                    TrackerUI::get_session_list_section(tracker, self.active_session_idx.unwrap());
                 let session_details_section = TrackerUI::get_session_details_section(tracker);
 
-                // TODO: Change to stateful list
-                f.render_widget(session_list_section, body_chunks[0]);
+                f.render_stateful_widget(
+                    session_list_section,
+                    body_chunks[0],
+                    &mut self.session_list_state,
+                );
                 f.render_widget(session_details_section, body_chunks[1]);
             }
             MenuItem::Loadout => {
@@ -150,7 +226,7 @@ pub trait Section {
     fn get_combat_section<'a>(tracker: &'a Tracker) -> Paragraph<'a>;
 
     // SESSION
-    fn get_session_list_section<'a>(tracker: &'a Tracker) -> List<'a>;
+    fn get_session_list_section<'a>(tracker: &'a Tracker, active_session_idx: usize) -> List<'a>;
     fn get_session_details_section<'a>(tracker: &'a Tracker) -> Paragraph<'a>;
 
     // LOADOUT
@@ -299,16 +375,29 @@ impl Section for TrackerUI {
     }
 
     // Session
-    fn get_session_list_section<'a>(tracker: &'a Tracker) -> List<'a> {
-        let session_items: Vec<ListItem> = tracker
-            .sessions
+    fn get_session_list_section<'a>(tracker: &'a Tracker, active_session_idx: usize) -> List<'a> {
+        let mut sessions_vec: Vec<&Session> = tracker.sessions.values().into_iter().collect();
+        sessions_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        let session_items: Vec<ListItem> = sessions_vec
             .iter()
-            .map(|(name, _)| ListItem::new(name.as_str()).style(Style::default().fg(Color::White)))
+            .enumerate()
+            .map(|(idx, s)| {
+                if idx == active_session_idx {
+                    return ListItem::new(s.name.as_str()).style(Style::default().fg(Color::Green));
+                }
+                ListItem::new(s.name.as_str()).style(Style::default().fg(Color::White))
+            })
             .collect();
 
         let list: List = List::new(session_items)
             .block(Block::default().title("Sessions").borders(Borders::ALL))
-            .style(Style::default().fg(Color::Cyan));
+            .style(Style::default().fg(Color::Cyan))
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(">> ");
 
         list
     }
@@ -379,6 +468,11 @@ impl Section for TrackerUI {
                     .title("Loadouts")
                     .borders(Borders::ALL)
                     .style(Style::default().fg(Color::Cyan)),
+            )
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )
             .highlight_symbol(">> ")
             .widths(&[
