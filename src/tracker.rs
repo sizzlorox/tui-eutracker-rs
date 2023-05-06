@@ -96,6 +96,7 @@ impl Base for Tracker {
         let mut push_to_logs = true;
         match log.event_type {
             EventType::SelfCrit => {
+                self.current_session.stats.self_attack_count += 1;
                 self.current_session.stats.self_crit_count += 1;
                 self.current_session.stats.self_total_damage +=
                     Decimal::from_str(log.values.get(0).unwrap()).unwrap();

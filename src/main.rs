@@ -33,6 +33,7 @@ use crate::ui::{TrackerUI, UI};
    * Left off: Working on loadout table state
    * Next: Session list state
    * Add PVP section, KDR and stuff ,{} killed {} using a {}., {} DISABLED {} using a {}.,
+   * Add focus to home, and left right to change section, up down to scroll
 */
 
 fn main() {
