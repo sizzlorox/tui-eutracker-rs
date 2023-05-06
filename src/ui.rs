@@ -16,7 +16,7 @@ use tui::{
 use crate::{
     loadout::Loadout,
     markup::Markup,
-    session::{Session, SessionLoot, Stopwatch},
+    session::{Session, SessionLoot, SessionSkill, Stopwatch},
     tracker::Tracker,
     utils::{Helpers, Utils},
 };
@@ -372,11 +372,16 @@ impl Section for TrackerUI {
             "Total Exp Gain: {}",
             tracker.current_session.stats.self_total_exp_gain
         )));
-        let mut skill_items: Vec<Spans> = tracker
+        let mut sorted_skills_vec: Vec<&SessionSkill> = tracker
             .current_session
             .skill_map
+            .values()
+            .into_iter()
+            .collect();
+        sorted_skills_vec.sort_by(|a, b| b.exp_gain.cmp(&a.exp_gain));
+        let mut skill_items: Vec<Spans> = sorted_skills_vec
             .iter()
-            .map(|(_, skill)| Spans::from(Span::raw(format!("{}: {}", skill.name, skill.exp_gain))))
+            .map(|skill| Spans::from(Span::raw(format!("{}: {}", skill.name, skill.exp_gain))))
             .collect();
         let mut spans_vec = vec![total_exp_gain];
         spans_vec.append(&mut skill_items);
@@ -448,11 +453,16 @@ impl Section for TrackerUI {
             mu_profit,
             tt_profit,
         ];
-        let mut items_vec: Vec<Spans> = tracker
+        let mut sorted_item_vec: Vec<&SessionLoot> = tracker
             .current_session
             .loot_map
+            .values()
+            .into_iter()
+            .collect();
+        sorted_item_vec.sort_by(|a, b| b.tt_value.cmp(&a.tt_value));
+        let mut items_vec: Vec<Spans> = sorted_item_vec
             .iter()
-            .map(|(_, loot)| {
+            .map(|loot| {
                 Spans::from(Span::raw(format!(
                     "{} (x{}): {} PED",
                     loot.name,
