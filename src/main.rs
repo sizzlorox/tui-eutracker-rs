@@ -1,5 +1,6 @@
 mod loadout;
 mod logger;
+mod markup;
 mod parser;
 mod session;
 mod tracker;
@@ -13,6 +14,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen},
 };
 use loadout::Loadout;
+use markup::Markup;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use session::{Session, Stopwatch};
 use std::io;
@@ -30,6 +32,7 @@ use crate::ui::{TrackerUI, UI};
    * Fix watch restarting on file change causing session file to be empty
    * Left off: Working on loadout table state
    * Next: Session list state
+   * Add PVP section, KDR and stuff ,{} killed {} using a {}., {} DISABLED {} using a {}.,
 */
 
 fn main() {
@@ -47,7 +50,13 @@ fn main() {
     let active_session_idx = sessions_vec
         .iter()
         .position(|&s| s.name == tracker.current_session.name);
-    let mut ui = TrackerUI::new(active_session_idx);
+    let mut loadouts_vec: Vec<&Loadout> = tracker.loadouts.values().into_iter().collect();
+    loadouts_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let active_loadout_idx = loadouts_vec
+        .iter()
+        .position(|&s| s.name == tracker.current_session.loadout.name);
+
+    let mut ui = TrackerUI::new(active_session_idx, active_loadout_idx);
 
     enable_raw_mode().unwrap();
     let mut stdout = io::stdout();
@@ -95,7 +104,7 @@ fn main() {
                             ui::MenuItem::Loadout => {
                                 tracker.logs.push_front("Creating New Loadout".to_string());
                                 let date_string = Local::now().format("%Y-%m-%d_%H-%M-%S");
-                                Loadout::new(format!("{}_loadout.json", date_string).as_str());
+                                Loadout::new(date_string.to_string().as_str());
                                 tracker.loadouts = Loadout::fetch();
                             }
                             _ => {}
@@ -109,6 +118,10 @@ fn main() {
                                 &mut ui,
                                 tracker.loadouts.values().collect::<Vec<&Loadout>>(),
                             ),
+                            ui::MenuItem::Markup => TrackerUI::previous_markup(
+                                &mut ui,
+                                tracker.markups.values().collect::<Vec<&Markup>>(),
+                            ),
                             _ => {}
                         },
                         KeyCode::Down => match ui.active_menu_item {
@@ -120,12 +133,25 @@ fn main() {
                                 &mut ui,
                                 tracker.loadouts.values().collect::<Vec<&Loadout>>(),
                             ),
+                            ui::MenuItem::Markup => TrackerUI::next_markup(
+                                &mut ui,
+                                tracker.markups.values().collect::<Vec<&Markup>>(),
+                            ),
                             _ => {}
                         },
                         KeyCode::Right => match ui.active_menu_item {
-                            // TODO: need to rename current, then move selected to current
                             ui::MenuItem::Session => {
-                                tracker.current_session.pause();
+                                let selected_idx = ui.session_list_state.selected().unwrap();
+                                if selected_idx == ui.active_session_idx.unwrap() {
+                                    tracker
+                                        .logs
+                                        .push_front("Session already selected".to_string());
+                                    continue;
+                                }
+
+                                if tracker.current_session.is_active {
+                                    tracker.current_session.pause();
+                                }
                                 tracker.current_session.save();
 
                                 tracker.sessions = Session::fetch();
@@ -133,10 +159,17 @@ fn main() {
                                 let mut sessions_vec: Vec<&Session> =
                                     tracker.sessions.values().into_iter().collect();
                                 sessions_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-                                let mut new_session =
-                                    sessions_vec[ui.session_list_state.selected().unwrap()].clone();
+                                let new_session = sessions_vec[selected_idx].clone();
                                 ui.active_session_idx = ui.session_list_state.selected();
-                                new_session.start_time = Instant::now();
+
+                                // Set active loadout idx
+                                let mut loadouts_vec: Vec<&Loadout> =
+                                    tracker.loadouts.values().into_iter().collect();
+                                loadouts_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                                let active_loadout_idx = loadouts_vec
+                                    .iter()
+                                    .position(|&s| s.name == new_session.loadout.name);
+                                ui.active_loadout_idx = active_loadout_idx;
 
                                 tracker
                                     .logs
@@ -144,14 +177,27 @@ fn main() {
                                 tracker.current_session = new_session;
                             }
                             ui::MenuItem::Loadout => {
-                                tracker.logs.push_front("Selecting Loadout".to_string());
-                                tracker.current_session.loadout = tracker
-                                    .loadouts
-                                    .values()
-                                    .into_iter()
-                                    .collect::<Vec<&Loadout>>()
-                                    [ui.loadout_table_state.selected().unwrap()]
-                                .clone()
+                                let selected_idx = ui.loadout_table_state.selected().unwrap();
+                                if selected_idx == ui.active_loadout_idx.unwrap() {
+                                    tracker
+                                        .logs
+                                        .push_front("Loadout already selected".to_string());
+                                    continue;
+                                }
+                                tracker.current_session.loadout.save();
+
+                                tracker.loadouts = Loadout::fetch();
+
+                                let mut loadouts_vec: Vec<&Loadout> =
+                                    tracker.loadouts.values().into_iter().collect();
+                                loadouts_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                                let new_loadout = loadouts_vec[selected_idx].clone();
+                                ui.active_loadout_idx = ui.loadout_table_state.selected();
+
+                                tracker
+                                    .logs
+                                    .push_front(format!("Selecting Loadout: {}", new_loadout.name));
+                                tracker.current_session.loadout = new_loadout;
                             }
                             _ => {}
                         },
@@ -181,6 +227,7 @@ fn main() {
             // Tracker ontick?
             tracker.current_session.save();
             tracker.current_session.loadout.save();
+            Markup::save(tracker.markups.clone());
             last_tick = Instant::now();
         }
     }

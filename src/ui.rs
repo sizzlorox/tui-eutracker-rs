@@ -1,3 +1,6 @@
+use std::ops::Mul;
+
+use rust_decimal::Decimal;
 use tui::{
     backend::Backend,
     layout::{Alignment, Constraint, Direction, Layout},
@@ -12,7 +15,8 @@ use tui::{
 
 use crate::{
     loadout::Loadout,
-    session::{Session, Stopwatch},
+    markup::Markup,
+    session::{Session, SessionLoot, Stopwatch},
     tracker::Tracker,
     utils::{Helpers, Utils},
 };
@@ -42,14 +46,18 @@ pub struct TrackerUI {
     pub active_menu_item: MenuItem,
     menu_items: Vec<String>,
     pub active_session_idx: Option<usize>,
+    pub active_loadout_idx: Option<usize>,
     pub session_list_state: ListState,
     pub loadout_table_state: TableState,
+    pub markup_table_state: TableState,
 }
 
 impl TrackerUI {
-    pub fn new(active_session_idx: Option<usize>) -> TrackerUI {
+    pub fn new(active_session_idx: Option<usize>, active_loadout_idx: Option<usize>) -> TrackerUI {
         let mut session_list_state = ListState::default();
         session_list_state.select(active_session_idx);
+        let mut loadout_table_state = TableState::default();
+        loadout_table_state.select(active_loadout_idx);
         return TrackerUI {
             active_menu_item: MenuItem::Home,
             menu_items: vec!["Home", "Session", "Loadout", "Markup", "Options", "Quit"]
@@ -57,8 +65,10 @@ impl TrackerUI {
                 .map(|s| s.to_string())
                 .collect(),
             active_session_idx,
+            active_loadout_idx,
             session_list_state,
-            loadout_table_state: TableState::default(),
+            loadout_table_state,
+            markup_table_state: TableState::default(),
         };
     }
     pub fn next_session(&mut self, items: Vec<&Session>) {
@@ -125,6 +135,38 @@ impl TrackerUI {
         };
         self.loadout_table_state.select(Some(i));
     }
+    pub fn next_markup(&mut self, items: Vec<&Markup>) {
+        if items.len() == 0 {
+            return;
+        }
+        let i = match self.markup_table_state.selected() {
+            Some(i) => {
+                if i >= items.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.markup_table_state.select(Some(i));
+    }
+    pub fn previous_markup(&mut self, items: Vec<&Markup>) {
+        if items.len() == 0 {
+            return;
+        }
+        let i = match self.markup_table_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    items.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.markup_table_state.select(Some(i));
+    }
 }
 
 pub trait UI {
@@ -133,6 +175,10 @@ pub trait UI {
 
 impl UI for TrackerUI {
     fn draw<B: Backend>(self: &mut Self, f: &mut Frame<B>, tracker: &Tracker) {
+        let mut ui_color = Color::Cyan;
+        if tracker.current_session.is_active {
+            ui_color = Color::Green;
+        }
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
@@ -145,7 +191,7 @@ impl UI for TrackerUI {
                 .as_ref(),
             )
             .split(f.size());
-        let menu_section = self.get_menu_section(self.active_menu_item);
+        let menu_section = self.get_menu_section(ui_color, self.active_menu_item);
         f.render_widget(menu_section, chunks[0]);
 
         match self.active_menu_item {
@@ -162,13 +208,21 @@ impl UI for TrackerUI {
                     )
                     .split(chunks[1]);
 
-                let skills_section = TrackerUI::get_skills_section(tracker);
-                let loot_section = TrackerUI::get_loot_section(tracker);
-                let combat_section = TrackerUI::get_combat_section(tracker);
+                let skills_section = TrackerUI::get_skills_section(ui_color, tracker);
+                let loot_section = TrackerUI::get_loot_section(ui_color, tracker);
+
+                let combat_body_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                    .split(body_chunks[2]);
+
+                let self_combat_section = TrackerUI::get_self_combat_section(ui_color, tracker);
+                let target_combat_section = TrackerUI::get_target_combat_section(ui_color, tracker);
 
                 f.render_widget(skills_section, body_chunks[0]);
                 f.render_widget(loot_section, body_chunks[1]);
-                f.render_widget(combat_section, body_chunks[2]);
+                f.render_widget(self_combat_section, combat_body_chunks[0]);
+                f.render_widget(target_combat_section, combat_body_chunks[1]);
             }
             MenuItem::Session => {
                 let body_chunks = Layout::default()
@@ -176,9 +230,13 @@ impl UI for TrackerUI {
                     .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
                     .split(chunks[1]);
 
-                let session_list_section =
-                    TrackerUI::get_session_list_section(tracker, self.active_session_idx.unwrap());
-                let session_details_section = TrackerUI::get_session_details_section(tracker);
+                let session_list_section = TrackerUI::get_session_list_section(
+                    ui_color,
+                    tracker,
+                    self.active_session_idx.unwrap(),
+                );
+                let session_details_section =
+                    TrackerUI::get_session_details_section(ui_color, tracker);
 
                 f.render_stateful_widget(
                     session_list_section,
@@ -192,17 +250,29 @@ impl UI for TrackerUI {
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(100)].as_ref())
                     .split(chunks[1]);
-                let loadouts_section = TrackerUI::get_loadouts_section(tracker);
+                let loadouts_section = TrackerUI::get_loadouts_section(
+                    ui_color,
+                    tracker,
+                    self.active_loadout_idx.unwrap(),
+                );
                 f.render_stateful_widget(
                     loadouts_section,
                     body_chunks[0],
                     &mut self.loadout_table_state,
                 );
             }
-            // MenuItem::Markup => {
-            //     let markup_section = draw_markup_section(tracker);
-            //     f.render_widget(markup_section, chunks[1]);
-            // },
+            MenuItem::Markup => {
+                let body_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(100)].as_ref())
+                    .split(chunks[1]);
+                let markup_section = TrackerUI::get_markups_section(ui_color, tracker);
+                f.render_stateful_widget(
+                    markup_section,
+                    body_chunks[0],
+                    &mut self.markup_table_state,
+                );
+            }
             // MenuItem::Options => {
             //     let options_section = draw_options_section(tracker);
             //     f.render_widget(options_section, chunks[1]);
@@ -210,32 +280,48 @@ impl UI for TrackerUI {
             _ => {}
         }
 
-        let logs_section = TrackerUI::get_logs_section(tracker);
+        let logs_section = TrackerUI::get_logs_section(ui_color, tracker);
         f.render_widget(logs_section, chunks[2]);
     }
 }
 
 pub trait Section {
     // COMMON
-    fn get_menu_section<'a>(&'a self, active_menu_item: MenuItem) -> Tabs<'a>;
-    fn get_logs_section<'a>(tracker: &'a Tracker) -> List<'a>;
+    fn get_menu_section<'a>(&'a self, ui_color: Color, active_menu_item: MenuItem) -> Tabs<'a>;
+    fn get_logs_section<'a>(ui_color: Color, tracker: &'a Tracker) -> List<'a>;
 
     // HOME
-    fn get_skills_section<'a>(tracker: &'a Tracker) -> Paragraph<'a>;
-    fn get_loot_section<'a>(tracker: &'a Tracker) -> Paragraph<'a>;
-    fn get_combat_section<'a>(tracker: &'a Tracker) -> Paragraph<'a>;
+    fn get_skills_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
+    fn get_loot_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
+    fn get_self_combat_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
+    fn get_target_combat_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
 
     // SESSION
-    fn get_session_list_section<'a>(tracker: &'a Tracker, active_session_idx: usize) -> List<'a>;
-    fn get_session_details_section<'a>(tracker: &'a Tracker) -> Paragraph<'a>;
+    fn get_session_list_section<'a>(
+        ui_color: Color,
+        tracker: &'a Tracker,
+        active_session_idx: usize,
+    ) -> List<'a>;
+    fn get_session_details_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
 
     // LOADOUT
-    fn get_loadouts_section<'a>(tracker: &'a Tracker) -> Table<'a>;
+    fn get_loadouts_section<'a>(
+        ui_color: Color,
+        tracker: &'a Tracker,
+        active_loadout_idx: usize,
+    ) -> Table<'a>;
+
+    // MARKUP
+    fn get_markups_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Table<'a>;
 }
 
 impl Section for TrackerUI {
     // COMMON
-    fn get_menu_section<'a>(self: &'a Self, active_menu_item: MenuItem) -> Tabs<'a> {
+    fn get_menu_section<'a>(
+        self: &'a Self,
+        ui_color: Color,
+        active_menu_item: MenuItem,
+    ) -> Tabs<'a> {
         let menu = self
             .menu_items
             .iter()
@@ -256,7 +342,7 @@ impl Section for TrackerUI {
         let tabs = Tabs::new(menu)
             .select(active_menu_item.into())
             .block(Block::default().title("Menu").borders(Borders::ALL))
-            .style(Style::default().fg(Color::Cyan))
+            .style(Style::default().fg(ui_color))
             .highlight_style(
                 Style::default()
                     .fg(Color::Yellow)
@@ -267,7 +353,7 @@ impl Section for TrackerUI {
         return tabs;
     }
 
-    fn get_logs_section<'a>(tracker: &'a Tracker) -> List<'a> {
+    fn get_logs_section<'a>(ui_color: Color, tracker: &'a Tracker) -> List<'a> {
         let logs: Vec<ListItem> = tracker
             .logs
             .iter()
@@ -275,13 +361,13 @@ impl Section for TrackerUI {
             .collect();
         let list: List = List::new(logs)
             .block(Block::default().title("Logs").borders(Borders::ALL))
-            .style(Style::default().fg(Color::Cyan));
+            .style(Style::default().fg(ui_color));
 
         return list;
     }
 
     // HOME
-    fn get_skills_section<'a>(tracker: &'a Tracker) -> Paragraph<'a> {
+    fn get_skills_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a> {
         let total_exp_gain = Spans::from(Span::raw(format!(
             "Total Exp Gain: {}",
             tracker.current_session.stats.self_total_exp_gain
@@ -300,7 +386,7 @@ impl Section for TrackerUI {
                 Block::default()
                     .title("Skills")
                     .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::Cyan)),
+                    .style(Style::default().fg(ui_color)),
             )
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true })
@@ -309,24 +395,42 @@ impl Section for TrackerUI {
         return paragraph;
     }
 
-    fn get_loot_section<'a>(tracker: &'a Tracker) -> Paragraph<'a> {
+    fn get_loot_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a> {
+        let total_cost = Spans::from(Span::raw(format!(
+            "Total Cost: {} PED",
+            tracker.current_session.stats.total_cost.trunc_with_scale(4),
+        )));
+        let mu_profit_value: Decimal = tracker
+            .current_session
+            .loot_map
+            .values()
+            .collect::<Vec<&SessionLoot>>()
+            .iter()
+            .fold(Decimal::new(0, 0), |a, l| {
+                a + (l.tt_value * tracker.markups.get(l.name.as_str()).unwrap().value)
+            });
         let mu_profit = Spans::from(Span::raw(format!(
             "MU Profit: {} PED ({}%)",
-            tracker.current_session.stats.mu_profit,
-            Utils::get_percentage(
-                tracker.current_session.stats.mu_profit,
-                tracker.current_session.stats.total_cost
-            )
+            mu_profit_value.trunc_with_scale(4),
+            Utils::get_percentage(mu_profit_value, tracker.current_session.stats.total_cost)
+        )));
+        let ped_per_hour = Spans::from(Span::raw(format!(
+            "PED/Hour: {} PED",
+            mu_profit_value
+                .checked_div(Decimal::from(tracker.current_session.elapsed().as_secs()))
+                .unwrap_or(Decimal::ZERO)
+                .mul(Decimal::from(3600))
+                .trunc_with_scale(4)
         )));
         let tt_profit = Spans::from(Span::raw(format!(
             "TT Profit: {} PED ({}%)",
-            tracker.current_session.stats.tt_profit,
+            tracker.current_session.stats.tt_profit.trunc_with_scale(4),
             Utils::get_percentage(
                 tracker.current_session.stats.tt_profit,
                 tracker.current_session.stats.total_cost
             )
         )));
-        let mut spans_vec = vec![mu_profit, tt_profit];
+        let mut spans_vec = vec![ped_per_hour, total_cost, mu_profit, tt_profit];
         let mut items_vec: Vec<Spans> = tracker
             .current_session
             .loot_map
@@ -334,7 +438,10 @@ impl Section for TrackerUI {
             .map(|(_, loot)| {
                 Spans::from(Span::raw(format!(
                     "{} (x{}): {} PED",
-                    loot.name, loot.count, loot.mu_value
+                    loot.name,
+                    loot.count,
+                    (loot.tt_value * tracker.markups.get(loot.name.as_str()).unwrap().value)
+                        .trunc_with_scale(4)
                 )))
             })
             .collect();
@@ -345,7 +452,7 @@ impl Section for TrackerUI {
                 Block::default()
                     .title("Loot")
                     .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::Cyan)),
+                    .style(Style::default().fg(ui_color)),
             )
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true })
@@ -354,28 +461,105 @@ impl Section for TrackerUI {
         return paragraph;
     }
 
-    fn get_combat_section<'a>(tracker: &'a Tracker) -> Paragraph<'a> {
+    fn get_self_combat_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a> {
         let self_total_damage = Spans::from(Span::raw(format!(
             "Total Damage: {}",
             tracker.current_session.stats.self_total_damage
         )));
-
-        let paragraph: Paragraph = Paragraph::new(vec![self_total_damage])
-            .block(
-                Block::default()
-                    .title("Combat")
-                    .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::Cyan)),
+        let self_total_heal = Spans::from(Span::raw(format!(
+            "Total Heal: {}",
+            tracker.current_session.stats.self_total_heal
+        )));
+        let self_total_shots = Spans::from(Span::raw(format!(
+            "Total Shots: {}",
+            tracker.current_session.stats.self_attack_count
+        )));
+        let self_crit_chance = Spans::from(Span::raw(format!(
+            "Crit Chance: {}%",
+            Utils::get_percentage(
+                Decimal::from(tracker.current_session.stats.self_crit_count),
+                Decimal::from(tracker.current_session.stats.self_attack_count),
             )
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: true })
-            .style(Style::default().fg(Color::White));
+        )));
+        let self_miss = Spans::from(Span::raw(format!(
+            "Miss: {}%",
+            Utils::get_percentage(
+                Decimal::from(tracker.current_session.stats.self_attack_miss_count),
+                Decimal::from(tracker.current_session.stats.self_attack_count),
+            )
+        )));
+        let self_deflected = Spans::from(Span::raw(format!(
+            "Deflected: {}%",
+            Utils::get_percentage(
+                Decimal::from(tracker.current_session.stats.self_deflect_count),
+                Decimal::from(tracker.current_session.stats.target_attack_count),
+            )
+        )));
+        let self_death_count = Spans::from(Span::raw(format!(
+            "Death Count: {}",
+            tracker.current_session.stats.self_death_count,
+        )));
+
+        let paragraph: Paragraph = Paragraph::new(vec![
+            self_total_shots,
+            self_total_damage,
+            self_total_heal,
+            self_crit_chance,
+            self_miss,
+            self_deflected,
+            self_death_count,
+        ])
+        .block(
+            Block::default()
+                .title("Player")
+                .borders(Borders::ALL)
+                .style(Style::default().fg(ui_color)),
+        )
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true })
+        .style(Style::default().fg(Color::White));
+
+        paragraph
+    }
+
+    fn get_target_combat_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a> {
+        let target_total_damage = Spans::from(Span::raw(format!(
+            "Total Damage: {}",
+            tracker.current_session.stats.target_total_damage
+        )));
+        let target_attack_count = Spans::from(Span::raw(format!(
+            "Total Attacks: {}",
+            tracker.current_session.stats.target_attack_count
+        )));
+        let target_miss = Spans::from(Span::raw(format!(
+            "Miss: {}%",
+            Utils::get_percentage(
+                Decimal::from(tracker.current_session.stats.self_evade_count),
+                Decimal::from(tracker.current_session.stats.target_attack_count),
+            )
+        )));
+
+        let paragraph: Paragraph =
+            Paragraph::new(vec![target_total_damage, target_attack_count, target_miss])
+                .block(
+                    Block::default()
+                        .title("Target")
+                        .borders(Borders::ALL)
+                        .style(Style::default().fg(ui_color)),
+                )
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true })
+                .style(Style::default().fg(Color::White));
 
         paragraph
     }
 
     // Session
-    fn get_session_list_section<'a>(tracker: &'a Tracker, active_session_idx: usize) -> List<'a> {
+    fn get_session_list_section<'a>(
+        ui_color: Color,
+        tracker: &'a Tracker,
+        active_session_idx: usize,
+    ) -> List<'a> {
         let mut sessions_vec: Vec<&Session> = tracker.sessions.values().into_iter().collect();
         sessions_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         let session_items: Vec<ListItem> = sessions_vec
@@ -391,7 +575,7 @@ impl Section for TrackerUI {
 
         let list: List = List::new(session_items)
             .block(Block::default().title("Sessions").borders(Borders::ALL))
-            .style(Style::default().fg(Color::Cyan))
+            .style(Style::default().fg(ui_color))
             .highlight_style(
                 Style::default()
                     .fg(Color::Yellow)
@@ -402,7 +586,7 @@ impl Section for TrackerUI {
         list
     }
 
-    fn get_session_details_section<'a>(tracker: &'a Tracker) -> Paragraph<'a> {
+    fn get_session_details_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a> {
         let elapsed_time = Spans::from(Span::raw(format!(
             "Elapsed Time: {}",
             tracker.current_session.pretty_elapsed()
@@ -418,7 +602,7 @@ impl Section for TrackerUI {
                 Block::default()
                     .title("Session Details")
                     .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::Cyan)),
+                    .style(Style::default().fg(ui_color)),
             )
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true })
@@ -428,7 +612,11 @@ impl Section for TrackerUI {
     }
 
     // Loadout
-    fn get_loadouts_section<'a>(tracker: &'a Tracker) -> Table<'a> {
+    fn get_loadouts_section<'a>(
+        ui_color: Color,
+        tracker: &'a Tracker,
+        active_loadout_idx: usize,
+    ) -> Table<'a> {
         let headers = vec![
             "Name",
             "Weapon",
@@ -438,26 +626,42 @@ impl Section for TrackerUI {
             "Sight 2",
             "Decay",
             "Ammo Burn",
+            "Cost per Shot",
         ];
 
         let header = Row::new(headers)
             .style(Style::default().fg(Color::Yellow))
             .bottom_margin(1);
-        let rows: Vec<Row> = tracker
-            .loadouts
+        let mut loadouts_vec: Vec<&Loadout> = tracker.loadouts.values().into_iter().collect();
+        loadouts_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        let rows: Vec<Row> = loadouts_vec
             .iter()
-            .map(|(_, loadout)| {
-                Row::new(vec![
+            .enumerate()
+            .map(|(idx, loadout)| {
+                let rows_vec = vec![
                     Cell::from(loadout.name.as_str()),
                     Cell::from(loadout.weapon.as_deref().unwrap_or("None")),
                     Cell::from(loadout.amp.as_deref().unwrap_or("None")),
                     Cell::from(loadout.scope.as_deref().unwrap_or("None")),
                     Cell::from(loadout.sight_one.as_deref().unwrap_or("None")),
                     Cell::from(loadout.sight_two.as_deref().unwrap_or("None")),
-                    Cell::from(loadout.decay.to_string()),
+                    Cell::from((loadout.decay.mul(Decimal::new(1, 2))).to_string()),
                     Cell::from(loadout.burn.to_string()),
-                ])
-                .style(Style::default().fg(Color::White))
+                    Cell::from(
+                        Decimal::from(loadout.burn)
+                            .checked_div(
+                                Decimal::from(10000) + loadout.decay.mul(Decimal::new(1, 2)),
+                            )
+                            .unwrap_or(Decimal::ZERO)
+                            .trunc_with_scale(6)
+                            .to_string(),
+                    ),
+                ];
+                if idx == active_loadout_idx {
+                    return Row::new(rows_vec).style(Style::default().fg(Color::Green));
+                }
+                Row::new(rows_vec).style(Style::default().fg(Color::White))
             })
             .collect();
 
@@ -467,7 +671,7 @@ impl Section for TrackerUI {
                 Block::default()
                     .title("Loadouts")
                     .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::Cyan)),
+                    .style(Style::default().fg(ui_color)),
             )
             .highlight_style(
                 Style::default()
@@ -476,15 +680,53 @@ impl Section for TrackerUI {
             )
             .highlight_symbol(">> ")
             .widths(&[
-                Constraint::Percentage(12),
-                Constraint::Percentage(12),
-                Constraint::Percentage(12),
-                Constraint::Percentage(12),
-                Constraint::Percentage(12),
-                Constraint::Percentage(12),
-                Constraint::Percentage(12),
-                Constraint::Percentage(12),
+                Constraint::Percentage(11),
+                Constraint::Percentage(11),
+                Constraint::Percentage(11),
+                Constraint::Percentage(11),
+                Constraint::Percentage(11),
+                Constraint::Percentage(11),
+                Constraint::Percentage(11),
+                Constraint::Percentage(11),
+                Constraint::Percentage(11),
             ]);
+
+        table
+    }
+
+    fn get_markups_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Table<'a> {
+        let headers = vec!["Name", "Markup"];
+        let header = Row::new(headers)
+            .style(Style::default().fg(Color::Yellow))
+            .bottom_margin(1);
+        let mut markups_vec: Vec<&Markup> = tracker.markups.values().into_iter().collect();
+        markups_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        let rows: Vec<Row> = markups_vec
+            .iter()
+            .map(|loadout| {
+                let rows_vec = vec![
+                    Cell::from(loadout.name.as_str()),
+                    Cell::from(format!("{}%", loadout.value.mul(Decimal::new(100, 0)))),
+                ];
+                Row::new(rows_vec).style(Style::default().fg(Color::White))
+            })
+            .collect();
+
+        let table = Table::new(rows)
+            .header(header)
+            .block(
+                Block::default()
+                    .title("Loadouts")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(ui_color)),
+            )
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(">> ")
+            .widths(&[Constraint::Percentage(50), Constraint::Percentage(50)]);
 
         table
     }

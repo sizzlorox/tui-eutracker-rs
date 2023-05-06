@@ -1,5 +1,5 @@
 use glob::glob;
-use std::{collections::HashMap, fs::File, io::Write, path::Path};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, time::Instant};
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,8 @@ pub struct Loadout {
     pub sight_two: Option<String>,
     pub decay: Decimal,
     pub burn: usize,
+    #[serde(with = "serde_millis")]
+    pub created_at: Instant,
 }
 
 impl Loadout {
@@ -32,6 +34,7 @@ impl Loadout {
             sight_two: None,
             decay: Decimal::new(0, 6),
             burn: 0,
+            created_at: Instant::now(),
         };
 
         let mut file = File::create(current_loadout_file).unwrap();

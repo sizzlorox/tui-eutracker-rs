@@ -2,12 +2,15 @@ use chrono::Local;
 use rust_decimal::prelude::*;
 use std::{
     collections::{HashMap, VecDeque},
+    ops::Deref,
     path::Path,
+    time::Instant,
 };
 
 use crate::{
     loadout::Loadout,
     logger::{EventType, Log},
+    markup::Markup,
     session::{Session, SessionLoot, SessionSkill},
 };
 
@@ -21,6 +24,7 @@ pub struct Tracker {
     pub current_session: Session,
     pub loadouts: HashMap<String, Loadout>,
     pub sessions: HashMap<String, Session>,
+    pub markups: HashMap<String, Markup>,
     pub logs: VecDeque<String>,
 }
 
@@ -30,17 +34,31 @@ impl Tracker {
         let mut sessions_vec: Vec<&Session> = sessions.values().into_iter().collect();
         sessions_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         let default_session = sessions_vec.get(0);
+
+        let loadouts = Loadout::fetch();
+
         if default_session.is_some() {
             let default_load_session_file = format!("{}.json", sessions_vec.get(0).unwrap().name);
+
             match Session::load(Path::new(default_load_session_file.as_str())) {
-                Some(session) => {
+                Some(mut session) => {
+                    let mut loadouts_vec: Vec<&Loadout> = loadouts.values().into_iter().collect();
+                    loadouts_vec.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                    let active_loadout_idx = loadouts_vec
+                        .iter()
+                        .position(|&s| s.name == session.loadout.name);
+
+                    session.loadout = loadouts_vec[active_loadout_idx.unwrap()].deref().clone();
+                    session.is_active = false;
+
                     return Tracker {
                         user,
                         current_session: session,
-                        loadouts: Loadout::fetch(),
+                        loadouts,
                         sessions,
+                        markups: Markup::load(),
                         logs: VecDeque::with_capacity(75),
-                    }
+                    };
                 }
                 None => {
                     let date_string = Local::now().format("%Y-%m-%d_%H-%M-%S");
@@ -49,8 +67,9 @@ impl Tracker {
                         current_session: Session::new(
                             format!("{}_session.json", date_string).as_str(),
                         ),
-                        loadouts: Loadout::fetch(),
+                        loadouts,
                         sessions: Session::fetch(),
+                        markups: Markup::load(),
                         logs: VecDeque::with_capacity(75),
                     };
                 }
@@ -60,8 +79,9 @@ impl Tracker {
         return Tracker {
             user,
             current_session: Session::new(format!("{}_session.json", date_string).as_str()),
-            loadouts: Loadout::fetch(),
+            loadouts,
             sessions: Session::fetch(),
+            markups: Markup::load(),
             logs: VecDeque::with_capacity(75),
         };
     }
@@ -69,6 +89,10 @@ impl Tracker {
 
 impl Base for Tracker {
     fn track(&mut self, log: Log) -> &Tracker {
+        if !self.current_session.is_active {
+            return self;
+        }
+
         let mut push_to_logs = true;
         match log.event_type {
             EventType::SelfCrit => {
@@ -77,12 +101,25 @@ impl Base for Tracker {
                     Decimal::from_str(log.values.get(0).unwrap()).unwrap();
                 self.current_session.stats.self_total_crit_damage +=
                     Decimal::from_str(log.values.get(0).unwrap()).unwrap();
+                self.current_session.stats.total_cost +=
+                    Decimal::from(self.current_session.loadout.burn)
+                        .checked_div(
+                            Decimal::from(10000)
+                                + self.current_session.loadout.decay * Decimal::new(1, 2),
+                        )
+                        .unwrap_or(Decimal::ZERO);
             }
             EventType::SelfHit => {
                 self.current_session.stats.self_attack_count += 1;
                 self.current_session.stats.self_total_damage +=
                     Decimal::from_str(log.values.get(0).unwrap()).unwrap();
-                // self.current_session.stats.total_cost +=
+                self.current_session.stats.total_cost +=
+                    Decimal::from(self.current_session.loadout.burn)
+                        .checked_div(
+                            Decimal::from(10000)
+                                + self.current_session.loadout.decay * Decimal::new(1, 2),
+                        )
+                        .unwrap_or(Decimal::ZERO);
             }
             EventType::SelfHeal => {
                 self.current_session.stats.self_total_heal +=
@@ -124,9 +161,25 @@ impl Base for Tracker {
                 let loot = log.values.get(0).unwrap();
                 let quantity = log.values.get(1).unwrap().parse::<usize>().unwrap();
                 let value = Decimal::from_str(log.values.get(2).unwrap()).unwrap();
-                self.current_session.stats.mu_profit += value;
                 self.current_session.stats.tt_profit += value;
+
+                if !self.markups.contains_key(loot) {
+                    self.markups.insert(
+                        loot.to_string(),
+                        Markup {
+                            name: loot.to_string(),
+                            value: Decimal::new(100, 2),
+                            created_at: Instant::now(),
+                        },
+                    );
+                }
+
                 if self.current_session.loot_map.contains_key(loot) {
+                    self.current_session
+                        .loot_map
+                        .get_mut(loot)
+                        .unwrap()
+                        .tt_value += value;
                     self.current_session.loot_map.get_mut(loot).unwrap().count += quantity;
                 } else {
                     self.current_session.loot_map.insert(
@@ -134,12 +187,13 @@ impl Base for Tracker {
                         SessionLoot {
                             name: loot.to_string(),
                             tt_value: value,
-                            // TODO: Add MU
-                            mu_value: value,
                             count: quantity,
                         },
                     );
                 }
+            }
+            EventType::SelfDeath => {
+                self.current_session.stats.self_death_count += 1;
             }
             EventType::TargetDodge => {
                 self.current_session.stats.target_dodge_count += 1;

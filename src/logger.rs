@@ -18,6 +18,7 @@ pub enum EventType {
     SelfMiss,
     SelfSkillGain,
     SelfLoot,
+    SelfDeath,
     TargetDodge,
     TargetEvade,
     TargetJam,
@@ -154,6 +155,15 @@ impl<'a> Logger<'a> {
                 regex: r"\[\] (.*?) killed a creature \((.*?)\) with a value of (.*?) PED!",
                 log_type: LogType::Global,
                 event_type: EventType::GlobalHunt,
+            },
+        );
+        log_events.insert(
+            14,
+            LogEvent {
+                // You were killed by the ruthless Attacker Elite Gen 03
+                regex: r"You were killed by (.*?)",
+                log_type: LogType::Combat,
+                event_type: EventType::SelfDeath,
             },
         );
 

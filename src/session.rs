@@ -88,7 +88,6 @@ impl Session {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SessionStats {
-    pub mu_profit: Decimal,
     pub tt_profit: Decimal,
     pub total_cost: Decimal,
     pub global_count: usize,
@@ -106,6 +105,7 @@ pub struct SessionStats {
     pub self_crit_count: usize,
     pub self_evade_count: usize,
     pub self_deflect_count: usize,
+    pub self_death_count: usize,
 
     pub target_total_damage: Decimal,
     pub target_attack_count: usize,
@@ -117,7 +117,6 @@ pub struct SessionStats {
 impl SessionStats {
     pub fn new() -> SessionStats {
         return SessionStats {
-            mu_profit: Decimal::new(0, 6),
             tt_profit: Decimal::new(0, 6),
             total_cost: Decimal::new(0, 6),
             global_count: 0,
@@ -133,6 +132,7 @@ impl SessionStats {
             self_crit_count: 0,
             self_evade_count: 0,
             self_deflect_count: 0,
+            self_death_count: 0,
             target_total_damage: Decimal::new(0, 6),
             target_attack_count: 0,
             target_dodge_count: 0,
@@ -146,7 +146,6 @@ impl SessionStats {
 pub struct SessionLoot {
     pub name: String,
     pub tt_value: Decimal,
-    pub mu_value: Decimal,
     pub count: usize,
 }
 
@@ -166,11 +165,11 @@ pub trait Stopwatch {
 
 impl Stopwatch for Session {
     fn start(&mut self) {
-        self.start_time = Instant::now() - self.elapsed_time;
+        self.start_time = Instant::now();
         self.is_active = true;
     }
     fn pause(&mut self) {
-        self.elapsed_time = self.start_time.elapsed();
+        self.elapsed_time += self.start_time.elapsed();
         self.is_active = false;
     }
     fn reset(&mut self) {

@@ -12,6 +12,7 @@ impl Helpers for Utils {
             return Decimal::from(0);
         }
 
-        return (value / total) * Decimal::from(100);
+        return (value.checked_div(total).unwrap_or(Decimal::ZERO) * Decimal::ONE_HUNDRED)
+            .trunc_with_scale(2);
     }
 }
