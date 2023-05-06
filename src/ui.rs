@@ -209,7 +209,13 @@ impl UI for TrackerUI {
                     .split(chunks[1]);
 
                 let skills_section = TrackerUI::get_skills_section(ui_color, tracker);
-                let loot_section = TrackerUI::get_loot_section(ui_color, tracker);
+                let loot_summary_section = TrackerUI::get_summary_loot_section(ui_color, tracker);
+                let loot_details_section = TrackerUI::get_details_loot_section(ui_color, tracker);
+
+                let loot_body_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
+                    .split(body_chunks[1]);
 
                 let combat_body_chunks = Layout::default()
                     .direction(Direction::Vertical)
@@ -220,7 +226,8 @@ impl UI for TrackerUI {
                 let target_combat_section = TrackerUI::get_target_combat_section(ui_color, tracker);
 
                 f.render_widget(skills_section, body_chunks[0]);
-                f.render_widget(loot_section, body_chunks[1]);
+                f.render_widget(loot_summary_section, loot_body_chunks[0]);
+                f.render_widget(loot_details_section, loot_body_chunks[1]);
                 f.render_widget(self_combat_section, combat_body_chunks[0]);
                 f.render_widget(target_combat_section, combat_body_chunks[1]);
             }
@@ -292,7 +299,8 @@ pub trait Section {
 
     // HOME
     fn get_skills_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
-    fn get_loot_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
+    fn get_summary_loot_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
+    fn get_details_loot_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
     fn get_self_combat_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
     fn get_target_combat_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a>;
 
@@ -400,7 +408,7 @@ impl Section for TrackerUI {
         return paragraph;
     }
 
-    fn get_loot_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a> {
+    fn get_summary_loot_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a> {
         let total_cost = Spans::from(Span::raw(format!(
             "Total Cost: {} PED",
             tracker.current_session.stats.total_cost.trunc_with_scale(4),
@@ -416,7 +424,7 @@ impl Section for TrackerUI {
             });
         let mu_profit = Spans::from(Span::raw(format!(
             "MU Profit: {} PED ({}%)",
-            mu_profit_value.trunc_with_scale(4),
+            (mu_profit_value - tracker.current_session.stats.total_cost).trunc_with_scale(4),
             Utils::get_percentage(mu_profit_value, tracker.current_session.stats.total_cost)
         )));
         let ped_per_hour = Spans::from(Span::raw(format!(
@@ -440,7 +448,8 @@ impl Section for TrackerUI {
         )));
         let tt_profit = Spans::from(Span::raw(format!(
             "TT Profit: {} PED ({}%)",
-            tracker.current_session.stats.tt_profit.trunc_with_scale(4),
+            (tracker.current_session.stats.tt_profit - tracker.current_session.stats.total_cost)
+                .trunc_with_scale(4),
             Utils::get_percentage(
                 tracker.current_session.stats.tt_profit,
                 tracker.current_session.stats.total_cost
@@ -453,6 +462,22 @@ impl Section for TrackerUI {
             mu_profit,
             tt_profit,
         ];
+
+        let paragraph = Paragraph::new(spans_vec)
+            .block(
+                Block::default()
+                    .title("Loot Summary")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(ui_color)),
+            )
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(Color::White));
+
+        return paragraph;
+    }
+
+    fn get_details_loot_section<'a>(ui_color: Color, tracker: &'a Tracker) -> Paragraph<'a> {
         let mut sorted_item_vec: Vec<&SessionLoot> = tracker
             .current_session
             .loot_map
@@ -472,12 +497,11 @@ impl Section for TrackerUI {
                 )))
             })
             .collect();
-        spans_vec.append(&mut items_vec);
 
-        let paragraph = Paragraph::new(spans_vec)
+        let paragraph = Paragraph::new(items_vec)
             .block(
                 Block::default()
-                    .title("Loot")
+                    .title("Loot Drops")
                     .borders(Borders::ALL)
                     .style(Style::default().fg(ui_color)),
             )
