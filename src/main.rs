@@ -22,18 +22,17 @@ use std::time::{Duration, Instant};
 use std::{path::Path, sync::mpsc::channel};
 use tui::backend::CrosstermBackend;
 use tui::Terminal;
+use ui::{EditableTable, EditableTableMode};
 
 use crate::parser::{Base as ParserBase, Parser};
 use crate::tracker::{Base as TrackerBase, Tracker};
-use crate::ui::{TrackerUI, UI};
+use crate::ui::{SectionState, TrackerUI, UI};
 
 /*
    TODO:
    * Fix watch restarting on file change causing session file to be empty
-   * Left off: Working on loadout table state
-   * Next: Session list state
    * Add PVP section, KDR and stuff ,{} killed {} using a {}., {} DISABLED {} using a {}.,
-   * Add focus to home, and left right to change section, up down to scroll
+   * Clean up UI module
 */
 
 fn main() {
@@ -89,7 +88,31 @@ fn main() {
         if crossterm::event::poll(timeout).unwrap() {
             if let Event::Key(key) = event::read().unwrap() {
                 if key.kind == KeyEventKind::Press {
+                    // EDITING
+                    match ui.active_menu_item {
+                        ui::MenuItem::Markup => match ui.markup_editable_table_state.mode {
+                            EditableTableMode::Edit => match key.code {
+                                KeyCode::Char(c) => {
+                                    ui.markup_editable_table_state.input.push(c);
+                                }
+                                KeyCode::Backspace => {
+                                    ui.markup_editable_table_state.input.pop();
+                                }
+                                _ => {}
+                            },
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+
                     match key.code {
+                        KeyCode::Enter => match ui.active_menu_item {
+                            ui::MenuItem::Markup => ui.markup_editable_table_state.toggle_mode(
+                                &mut tracker.markups,
+                                ui.markup_table_state.selected().unwrap_or(0),
+                            ),
+                            _ => {}
+                        },
                         KeyCode::Char('h') => ui.active_menu_item = ui::MenuItem::Home,
                         KeyCode::Char('s') => ui.active_menu_item = ui::MenuItem::Session,
                         KeyCode::Char('l') => ui.active_menu_item = ui::MenuItem::Loadout,
@@ -111,6 +134,7 @@ fn main() {
                             _ => {}
                         },
                         KeyCode::Up => match ui.active_menu_item {
+                            ui::MenuItem::Home => ui.home_section_state.scroll_up(),
                             ui::MenuItem::Session => TrackerUI::previous_session(
                                 &mut ui,
                                 tracker.sessions.values().collect::<Vec<&Session>>(),
@@ -126,6 +150,7 @@ fn main() {
                             _ => {}
                         },
                         KeyCode::Down => match ui.active_menu_item {
+                            ui::MenuItem::Home => ui.home_section_state.scroll_down(),
                             ui::MenuItem::Session => TrackerUI::next_session(
                                 &mut ui,
                                 tracker.sessions.values().collect::<Vec<&Session>>(),
@@ -140,7 +165,12 @@ fn main() {
                             ),
                             _ => {}
                         },
+                        KeyCode::Left => match ui.active_menu_item {
+                            ui::MenuItem::Home => ui.home_section_state.previous(),
+                            _ => {}
+                        },
                         KeyCode::Right => match ui.active_menu_item {
+                            ui::MenuItem::Home => ui.home_section_state.next(),
                             ui::MenuItem::Session => {
                                 let selected_idx = ui.session_list_state.selected().unwrap();
                                 if selected_idx == ui.active_session_idx.unwrap() {
