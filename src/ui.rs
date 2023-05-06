@@ -422,6 +422,17 @@ impl Section for TrackerUI {
                 .mul(Decimal::from(3600))
                 .trunc_with_scale(4)
         )));
+        let cost_per_hour = Spans::from(Span::raw(format!(
+            "Cost/Hour: {} PED",
+            tracker
+                .current_session
+                .stats
+                .total_cost
+                .checked_div(Decimal::from(tracker.current_session.elapsed().as_secs()))
+                .unwrap_or(Decimal::ZERO)
+                .mul(Decimal::from(3600))
+                .trunc_with_scale(4)
+        )));
         let tt_profit = Spans::from(Span::raw(format!(
             "TT Profit: {} PED ({}%)",
             tracker.current_session.stats.tt_profit.trunc_with_scale(4),
@@ -430,7 +441,13 @@ impl Section for TrackerUI {
                 tracker.current_session.stats.total_cost
             )
         )));
-        let mut spans_vec = vec![ped_per_hour, total_cost, mu_profit, tt_profit];
+        let mut spans_vec = vec![
+            ped_per_hour,
+            cost_per_hour,
+            total_cost,
+            mu_profit,
+            tt_profit,
+        ];
         let mut items_vec: Vec<Spans> = tracker
             .current_session
             .loot_map
