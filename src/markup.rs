@@ -1,4 +1,6 @@
-use std::{collections::HashMap, fs::File, io::Write, path::Path, time::Instant};
+use chrono::serde::ts_seconds;
+use chrono::{DateTime, Utc};
+use std::{collections::HashMap, fs::File, io::Write, path::Path};
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -8,8 +10,8 @@ use serde_json::json;
 pub struct Markup {
     pub name: String,
     pub value: Decimal,
-    #[serde(with = "serde_millis")]
-    pub created_at: Instant,
+    #[serde(with = "ts_seconds")]
+    pub created_at: DateTime<Utc>,
 }
 
 impl Markup {

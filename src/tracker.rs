@@ -1,10 +1,10 @@
 use chrono::Local;
+use chrono::Utc;
 use rust_decimal::prelude::*;
 use std::{
     collections::{HashMap, VecDeque},
     ops::Deref,
     path::Path,
-    time::Instant,
 };
 
 use crate::{
@@ -99,9 +99,9 @@ impl Base for Tracker {
                 self.current_session.stats.self_attack_count += 1;
                 self.current_session.stats.self_crit_count += 1;
                 self.current_session.stats.self_total_damage +=
-                    Decimal::from_str(log.values.get(0).unwrap()).unwrap();
+                    Decimal::from_str_exact(log.values.get(0).unwrap()).unwrap();
                 self.current_session.stats.self_total_crit_damage +=
-                    Decimal::from_str(log.values.get(0).unwrap()).unwrap();
+                    Decimal::from_str_exact(log.values.get(0).unwrap()).unwrap();
                 self.current_session.stats.total_cost +=
                     Decimal::from(self.current_session.loadout.burn)
                         .checked_div(
@@ -113,7 +113,7 @@ impl Base for Tracker {
             EventType::SelfHit => {
                 self.current_session.stats.self_attack_count += 1;
                 self.current_session.stats.self_total_damage +=
-                    Decimal::from_str(log.values.get(0).unwrap()).unwrap();
+                    Decimal::from_str_exact(log.values.get(0).unwrap()).unwrap();
                 self.current_session.stats.total_cost +=
                     Decimal::from(self.current_session.loadout.burn)
                         .checked_div(
@@ -124,7 +124,7 @@ impl Base for Tracker {
             }
             EventType::SelfHeal => {
                 self.current_session.stats.self_total_heal +=
-                    Decimal::from_str(log.values.get(0).unwrap()).unwrap();
+                    Decimal::from_str_exact(log.values.get(0).unwrap()).unwrap();
             }
             EventType::SelfDeflect => {
                 self.current_session.stats.self_deflect_count += 1;
@@ -139,7 +139,7 @@ impl Base for Tracker {
                 self.current_session.stats.self_attack_miss_count += 1;
             }
             EventType::SelfSkillGain => {
-                let exp_gain = Decimal::from_str(log.values.get(0).unwrap()).unwrap();
+                let exp_gain = Decimal::from_str_exact(log.values.get(0).unwrap()).unwrap();
                 let skill = log.values.get(1).unwrap();
                 self.current_session.stats.self_total_exp_gain += exp_gain;
                 if self.current_session.skill_map.contains_key(skill) {
@@ -161,7 +161,7 @@ impl Base for Tracker {
             EventType::SelfLoot => {
                 let loot = log.values.get(0).unwrap();
                 let quantity = log.values.get(1).unwrap().parse::<usize>().unwrap();
-                let value = Decimal::from_str(log.values.get(2).unwrap()).unwrap();
+                let value = Decimal::from_str_exact(log.values.get(2).unwrap()).unwrap();
                 self.current_session.stats.tt_profit += value;
 
                 if !self.markups.contains_key(loot) {
@@ -170,7 +170,7 @@ impl Base for Tracker {
                         Markup {
                             name: loot.to_string(),
                             value: Decimal::new(100, 2),
-                            created_at: Instant::now(),
+                            created_at: Utc::now(),
                         },
                     );
                 }
@@ -214,12 +214,12 @@ impl Base for Tracker {
             EventType::TargetHit => {
                 self.current_session.stats.target_attack_count += 1;
                 self.current_session.stats.target_total_damage +=
-                    Decimal::from_str(log.values.get(0).unwrap()).unwrap();
+                    Decimal::from_str_exact(log.values.get(0).unwrap()).unwrap();
             }
             EventType::GlobalHuntHOF => {
                 let global_user: String = log.values.get(0).unwrap().to_string();
                 if global_user == self.user {
-                    let global_value = Decimal::from_str(log.values.get(2).unwrap()).unwrap();
+                    let global_value = Decimal::from_str_exact(log.values.get(2).unwrap()).unwrap();
                     self.current_session.stats.global_count += 1;
                     self.current_session.stats.hof_count += 1;
                     self.current_session.stats.total_global_gain += global_value;
@@ -231,7 +231,7 @@ impl Base for Tracker {
             EventType::GlobalHunt => {
                 let global_user: String = log.values.get(0).unwrap().to_string();
                 if global_user == self.user {
-                    let global_value = Decimal::from_str(log.values.get(2).unwrap()).unwrap();
+                    let global_value = Decimal::from_str_exact(log.values.get(2).unwrap()).unwrap();
                     self.current_session.stats.global_count += 1;
                     self.current_session.stats.total_global_gain += global_value;
                 } else {

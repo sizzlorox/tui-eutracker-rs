@@ -33,6 +33,9 @@ use crate::ui::{SectionState, TrackerUI, UI};
    * Fix watch restarting on file change causing session file to be empty
    * Add PVP section, KDR and stuff ,{} killed {} using a {}., {} DISABLED {} using a {}.,
    * Clean up UI module
+   * Fix adding new session does not update with correct active index
+   * Loot items value seems a bit off? Maybe it's getting rounded? wtf
+   * Solve overflow from serde_millis, maybe write own
 */
 
 fn main() {

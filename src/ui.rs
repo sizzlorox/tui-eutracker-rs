@@ -434,12 +434,12 @@ impl UI for TrackerUI {
 
                 let loot_body_chunks = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
+                    .constraints([Constraint::Percentage(45), Constraint::Percentage(55)].as_ref())
                     .split(body_chunks[1]);
 
                 let combat_body_chunks = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                    .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
                     .split(body_chunks[2]);
 
                 let self_combat_section = TrackerUI::get_self_combat_section(
@@ -703,7 +703,9 @@ impl Section for TrackerUI {
         let ped_per_hour = Spans::from(Span::raw(format!(
             "PED/Hour: {} PED",
             mu_profit_value
-                .checked_div(Decimal::from(tracker.current_session.elapsed().as_secs()))
+                .checked_div(Decimal::from(
+                    tracker.current_session.elapsed().num_seconds()
+                ))
                 .unwrap_or(Decimal::ZERO)
                 .mul(Decimal::from(3600))
                 .trunc_with_scale(4)
@@ -714,7 +716,9 @@ impl Section for TrackerUI {
                 .current_session
                 .stats
                 .total_cost
-                .checked_div(Decimal::from(tracker.current_session.elapsed().as_secs()))
+                .checked_div(Decimal::from(
+                    tracker.current_session.elapsed().num_seconds()
+                ))
                 .unwrap_or(Decimal::ZERO)
                 .mul(Decimal::from(3600))
                 .trunc_with_scale(4)

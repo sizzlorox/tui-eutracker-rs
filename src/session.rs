@@ -1,21 +1,21 @@
+use chrono::serde::{ts_seconds, ts_seconds_option};
+use chrono::{DateTime, Duration, Utc};
+use serde_with::{serde_as, DurationSeconds};
+
 use glob::glob;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::Write,
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, fs::File, io::Write, path::Path};
 
 use crate::loadout::Loadout;
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Session {
     pub name: String,
-    #[serde(with = "serde_millis")]
-    pub start_time: Instant,
+    #[serde(with = "ts_seconds_option")]
+    pub start_time: Option<DateTime<Utc>>,
+    #[serde_as(as = "DurationSeconds<i64>")]
     pub elapsed_time: Duration,
     pub is_active: bool,
 
@@ -23,8 +23,8 @@ pub struct Session {
     pub stats: SessionStats,
     pub loot_map: HashMap<String, SessionLoot>,
     pub skill_map: HashMap<String, SessionSkill>,
-    #[serde(with = "serde_millis")]
-    pub created_at: Instant,
+    #[serde(with = "ts_seconds")]
+    pub created_at: DateTime<Utc>,
 }
 
 impl Session {
@@ -32,14 +32,14 @@ impl Session {
         let current_session_file = Path::new(session_name);
         let default_session = Session {
             name: String::from(session_name.replace(".json", "")),
-            start_time: Instant::now(),
-            elapsed_time: Duration::from_secs(0),
+            start_time: None,
+            elapsed_time: Duration::zero(),
             is_active: false,
             loadout: Loadout::new("default"),
             stats: SessionStats::new(),
             loot_map: HashMap::new(),
             skill_map: HashMap::new(),
-            created_at: Instant::now(),
+            created_at: Utc::now(),
         };
 
         let mut file = File::create(current_session_file).unwrap();
@@ -165,30 +165,32 @@ pub trait Stopwatch {
 
 impl Stopwatch for Session {
     fn start(&mut self) {
-        self.start_time = Instant::now();
+        self.start_time = Some(Utc::now());
         self.is_active = true;
     }
     fn pause(&mut self) {
-        self.elapsed_time += self.start_time.elapsed();
+        self.elapsed_time =
+            self.elapsed_time + Utc::now().signed_duration_since(self.start_time.unwrap());
+        self.start_time = None;
         self.is_active = false;
     }
     fn reset(&mut self) {
-        self.start_time = Instant::now();
-        self.elapsed_time = Duration::from_secs(0);
+        self.start_time = Some(Utc::now());
+        self.elapsed_time = Duration::seconds(0);
         self.is_active = false;
     }
     fn elapsed(&self) -> Duration {
         if self.is_active {
-            return self.elapsed_time + self.start_time.elapsed();
+            return self.elapsed_time + Utc::now().signed_duration_since(self.start_time.unwrap());
         }
         return self.elapsed_time;
     }
     fn pretty_elapsed(&self) -> String {
         let elapsed = self.elapsed();
-        let hours = elapsed.as_secs() / 3600;
-        let minutes = (elapsed.as_secs() % 3600) / 60;
-        let seconds = elapsed.as_secs() % 60;
-        let millis = elapsed.subsec_millis();
+        let hours = elapsed.num_seconds() / 3600;
+        let minutes = (elapsed.num_seconds() % 3600) / 60;
+        let seconds = elapsed.num_seconds() % 60;
+        let millis = elapsed.num_milliseconds();
 
         format!(
             "{:02}h {:02}m {:02}s {:03}ms",
